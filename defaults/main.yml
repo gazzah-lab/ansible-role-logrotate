@@ -1,0 +1,31 @@
+---
+# defaults file for gazzah.logrotate
+
+logrotate_packages:
+  - logrotate
+
+# Liste des fichiers déployés dans logrotate_config_dir.
+# Chaque élément accepte : name, paths, options, create, postrotate.
+logrotate_configs: []
+
+logrotate_config_dir: /etc/logrotate.d
+logrotate_file_owner: root
+logrotate_file_group: root
+logrotate_file_mode: "0644"
+
+# Marqueur écrit en tête de chaque fichier géré ; il sert à identifier
+# les fichiers orphelins à supprimer.
+logrotate_managed_marker: "ANSIBLE MANAGED - gazzah.logrotate"
+logrotate_remove_orphans: true
+
+# Fichiers de logrotate_config_dir gérés par un autre outil (autre équipe,
+# script de déploiement) : jamais écrits ni supprimés par le rôle. Un nom de
+# logrotate_configs présent dans cette liste est refusé.
+logrotate_foreign_files: []
+
+logrotate_apt_install_state: present
+logrotate_apt_update_cache: true
+logrotate_apt_cache_valid_time: 3600
+
+# Explicit opt-in before deleting all previously managed rotation policies.
+logrotate_allow_empty: false

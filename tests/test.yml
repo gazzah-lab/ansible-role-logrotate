@@ -1,0 +1,17 @@
+---
+- name: Test logrotate
+  hosts: all
+  become: true
+  roles:
+    - role: gazzah.logrotate
+  vars:
+    logrotate_configs:
+      - name: example
+        paths:
+          - /var/log/example/*.log
+        options:
+          - daily
+          - rotate 7
+          - missingok
+          - notifempty
+          - compress

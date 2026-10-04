@@ -1,0 +1,16 @@
+# {{ logrotate_managed_marker }}
+{{ item.paths | map('to_json') | join(' ') }} {
+{% for option in item.options | default([]) %}
+    {{ option }}
+{% endfor %}
+{% if item.create is defined %}
+    create {{ item.create }}
+{% endif %}
+{% if item.postrotate is defined and item.postrotate %}
+    postrotate
+{% for cmd in item.postrotate %}
+        {{ cmd }}
+{% endfor %}
+    endscript
+{% endif %}
+}

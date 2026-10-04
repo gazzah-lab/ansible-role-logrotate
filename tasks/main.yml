@@ -1,0 +1,151 @@
+---
+# tasks file for gazzah.logrotate
+
+- name: Validate logrotate entries
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - item.name is defined
+      - item.name is string
+      - item.name is match('^[A-Za-z0-9][A-Za-z0-9._-]*$')
+      - item.paths is defined
+      - item.paths is sequence
+      - item.paths is not string
+      - item.paths | length > 0
+      - item.paths | select('string') | list | length == item.paths | length
+      - item.options is not defined or (item.options is sequence and item.options is not string)
+      - item.postrotate is not defined or (item.postrotate is sequence and item.postrotate is not string)
+    fail_msg: >-
+      Entrée logrotate invalide : {{ item.name | default('<sans name>') if item is mapping else item }}.
+      Attendu : name (string, [A-Za-z0-9._-]), paths (liste non vide),
+      options et postrotate optionnels (listes).
+    quiet: true
+  loop: "{{ logrotate_configs }}"
+  loop_control:
+    label: "{{ item.name | default('<unnamed>') }}"
+  tags:
+    - configuration
+    - logrotate
+    - logrotate-config
+    - logrotate-cleanup
+
+- name: Validate role parameters
+  tags:
+    - configuration
+    - logrotate
+    - logrotate-config
+    - logrotate-cleanup
+  block:
+    - name: Validate platform
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family | default('') == "Debian"
+        fail_msg: >-
+          Plateforme non supportée : {{ ansible_facts.os_family | default('inconnue (facts non collectés ?)') }},
+          seule la famille Debian est supportée.
+        quiet: true
+
+    - name: Validate logrotate_configs is not empty
+      ansible.builtin.assert:
+        that:
+          - logrotate_configs | length > 0 or logrotate_allow_empty | bool
+        fail_msg: >-
+          logrotate_configs est vide : refusé pour ne pas supprimer tous les
+          fichiers gérés. Vérifier que la variable est définie pour ce groupe.
+        quiet: true
+
+    - name: Validate logrotate entry names are unique
+      ansible.builtin.assert:
+        that:
+          - logrotate_configs | map(attribute='name') | unique | length == logrotate_configs | length
+        fail_msg: >-
+          Noms en double dans logrotate_configs :
+          {{ logrotate_configs | groupby('name') | selectattr('1.1', 'defined') | map('first') | join(', ') }}.
+        quiet: true
+
+    - name: Validate foreign files are not managed
+      ansible.builtin.assert:
+        that:
+          - logrotate_foreign_files is sequence
+          - logrotate_foreign_files is not string
+          - logrotate_configs | map(attribute='name') | intersect(logrotate_foreign_files) | length == 0
+        fail_msg: >-
+          Fichiers gérés par un autre outil présents dans logrotate_configs :
+          {{ logrotate_configs | map(attribute='name') | intersect(logrotate_foreign_files | default([])) | join(', ') }}.
+          Les retirer de logrotate_configs ou de logrotate_foreign_files.
+        quiet: true
+
+    - name: Validate managed marker
+      ansible.builtin.assert:
+        that:
+          - logrotate_managed_marker | length > 0
+        fail_msg: "logrotate_managed_marker est vide : impossible d'identifier les fichiers gérés."
+        quiet: true
+
+- name: Install logrotate dependencies
+  ansible.builtin.apt:
+    name: "{{ logrotate_packages }}"
+    state: "{{ logrotate_apt_install_state }}"
+    update_cache: "{{ logrotate_apt_update_cache | bool }}"
+    cache_valid_time: "{{ logrotate_apt_cache_valid_time }}"
+  tags:
+    - configuration
+    - logrotate
+    - logrotate-install
+
+- name: Ensure logrotate configuration directory exists
+  ansible.builtin.file:
+    path: "{{ logrotate_config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags:
+    - configuration
+    - logrotate
+    - logrotate-config
+
+- name: Deploy logrotate configurations
+  ansible.builtin.template:
+    validate: /usr/sbin/logrotate --debug %s
+    src: logrotate.conf.j2
+    dest: "{{ logrotate_config_dir }}/{{ item.name }}"
+    owner: "{{ logrotate_file_owner }}"
+    group: "{{ logrotate_file_group }}"
+    mode: "{{ logrotate_file_mode }}"
+  loop: "{{ logrotate_configs }}"
+  loop_control:
+    label: "{{ item.name }}"
+  tags:
+    - configuration
+    - logrotate
+    - logrotate-config
+
+- name: Find logrotate files managed by Ansible
+  ansible.builtin.find:
+    paths: "{{ logrotate_config_dir }}"
+    file_type: file
+    contains: "# {{ logrotate_managed_marker | regex_escape }}$"
+  register: logrotate_managed_files
+  when: logrotate_remove_orphans | bool
+  tags:
+    - configuration
+    - logrotate
+    - logrotate-cleanup
+
+- name: Remove orphaned logrotate files
+  ansible.builtin.file:
+    path: "{{ logrotate_config_dir }}/{{ item }}"
+    state: absent
+  loop: >-
+    {{ logrotate_managed_files.files | default([])
+       | map(attribute='path')
+       | map('basename')
+       | difference(logrotate_configs | map(attribute='name'))
+       | difference(logrotate_foreign_files)
+       | list }}
+  when: logrotate_remove_orphans | bool
+  tags:
+    - configuration
+    - logrotate
+    - logrotate-cleanup

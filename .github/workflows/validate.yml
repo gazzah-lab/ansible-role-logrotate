@@ -1,0 +1,31 @@
+---
+name: Validate
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    container: python:3.13-slim-trixie
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install 'ansible-core>=2.20,<2.21' ansible-lint yamllint
+      - run: yamllint -c .yamllint .
+      - run: ansible-lint --offline -c .ansible-lint .
+      - name: Syntax check
+        shell: bash
+        run: |
+          mkdir -p /tmp/roles
+          ln -sfn "$GITHUB_WORKSPACE" /tmp/roles/gazzah.logrotate
+          ANSIBLE_ROLES_PATH=/tmp/roles ansible-playbook -i localhost, -c local tests/test.yml --syntax-check
+      - name: Apply twice
+        shell: bash
+        run: |
+          mkdir -p /tmp/roles
+          ln -sfn "$GITHUB_WORKSPACE" /tmp/roles/gazzah.logrotate
+          export ANSIBLE_ROLES_PATH=/tmp/roles
+          ansible-playbook -i localhost, -c local tests/test.yml
+          ansible-playbook -i localhost, -c local tests/test.yml | tee /tmp/second-run.log
+          grep -Eq 'changed=0 +unreachable=0 +failed=0' /tmp/second-run.log
+      - name: Regression checks
+        run: ANSIBLE_ROLES_PATH=/tmp/roles python tests/regression.py
